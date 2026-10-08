@@ -4,6 +4,8 @@
 
 Draft in your own voice with any coding agent.
 
+<img src="assets/demo.svg" alt="ghostwriter learns a writer's voice, flags an AI-sounding draft at 47.8/100 for tells and an invented number, then passes the revised draft at 82.5/100" width="780">
+
 [Why](#why) · [Install](#install) · [Quick start](#quick-start) · [How it works](#how-it-works) · [Documentation](#documentation)
 
 ---

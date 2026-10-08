@@ -34,3 +34,10 @@ func TestCompareClean(t *testing.T) {
 		t.Fatalf("clean rewrite flagged: %+v", r)
 	}
 }
+
+func TestPossessiveNamesMatch(t *testing.T) {
+	r := Compare("Demo on Thursday with Marta.", "Marta's demo is on Thursday's slot.")
+	if len(r.AddedNames) > 0 || len(r.DroppedNames) > 0 {
+		t.Fatalf("possessives should match their names: %+v", r)
+	}
+}
