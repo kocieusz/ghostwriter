@@ -101,6 +101,7 @@ func names(s string) map[string]bool {
 				n = strings.Join(parts[1:], " ")
 			}
 			first = false
+			n = strings.TrimSuffix(n, "'s") // "Thursday's" is still Thursday
 			if n == "" || commonCaps[n] {
 				continue
 			}
