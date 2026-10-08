@@ -175,7 +175,7 @@ func Score(p *Profile, draft string, o Options) Result {
 	}
 	total += fwWeight
 
-	var notes []Note
+	notes := []Note{}
 	for _, name := range featureNames {
 		f := features[name]
 		st, ok := p.Features[name]
