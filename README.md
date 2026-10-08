@@ -79,7 +79,7 @@ github.com/kocieusz/ghostwriter and set it up with my writing in ~/writing"*.
 
 ## How it works
 
-<img src="assets/engine.svg" alt="ghostwriter turns six writing samples into a fingerprint of per-measurement ranges, calibrates a pass mark of 77 between held-out samples and generic AI drafts, scans a draft for AI patterns against the writer's own rates, scores it 47.8, and scores the revision 82.5" width="780">
+<img src="assets/engine.svg" alt="A tmux session: ghostwriter analyze turns six samples into per-measurement ranges and a pass mark of 77; ghostwriter score flags AI patterns in a draft and scores it 47.8; the revised draft scores 82.5 and passes" width="780">
 
 Each draft gets a score out of 100, built from three checks:
 
