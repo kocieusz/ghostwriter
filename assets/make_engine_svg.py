@@ -13,30 +13,21 @@ where pass1.md and pass2.md are the two drafts shown in assets/demo.svg
 (PASS1 and PASS2 below, re-wrapped to the pane width). Ranges, draft values,
 pattern counts, calibration points and scores all come from those files.
 
-The animation is a sequence of terminal frames. Each pane row becomes one
-<text> element per stretch of time it stays unchanged, switched on and off
-with step timing, so it redraws like a terminal instead of fading.
+Drawing is done by termsvg.py, shared with make_demo_svg.py.
 """
 import json
 import math
 import sys
-from html import escape
+
+from termsvg import Session, runs
 
 prof, d1, d2 = (json.load(open(p)) for p in sys.argv[1:4])
 OUT = sys.argv[4]
 
 T = 30.0
-CW, LH, FS = 7.8, 18, 13          # cell width, line height, font size
-PAD, TOP = 18, 50                  # left padding, baseline of the first row
-LEFT_W, RIGHT_X = 50, 51           # left pane width; right pane first column
 ROWS = 26
-W = int(PAD * 2 + 100 * CW)
-STATUS_Y = TOP + ROWS * LH + 6
-H = STATUS_Y + 14
-
-# Tokyo Night
-C = dict(bg="#1a1b26", bar="#16161e", fg="#c0caf5", dim="#565f89", blue="#7aa2f7", cyan="#7dcfff",
-         green="#9ece6a", red="#f7768e", yellow="#e0af68", magenta="#bb9af7", border="#3b4261")
+LEFT_W = 50                        # left pane width; the right pane starts after the border
+session = Session(T, rows=ROWS)
 
 PASS1 = """Hi Marta,
 Thank you for reaching out! I'm thrilled to
@@ -48,7 +39,9 @@ progress. The payment API sandbox is down,
 and 47 tickets are blocked.
 Let me know if you'd like me to prepare
 anything else!""".split("\n")
-FLAGS = ["—", "it's not just a", "meeting, it's", "pivotal moment", ", highlighting", "robust", "47",
+# Phrases the scorer penalised. The em dash is not here: this writer uses dashes,
+# so the scorer allowed it (the table shows it as ok).
+FLAGS = ["it's not just a", "meeting, it's", "pivotal moment", ", highlighting", "robust", "47",
          "Let me know if you'd like me"]
 PASS2 = """Hey Marta,
 Thursday works, I'll be there. Slides will be
@@ -60,34 +53,12 @@ part live. I'd rather tell them now than
 find out during the demo haha.
 Thanks a lot!""".split("\n")
 
-L, R = "L", "R"
-
-# ---------------------------------------------------------------- frames
-# Events change rows of a cumulative screen: {(pane, row): [(text, colour)]}.
-events = []
-
-
-def at(t, changes):
-    events.append((t, changes))
-
-
-def runs(cells, indent="  "):
-    """Merge (char, colour) cells into (text, colour) runs."""
-    out = [(indent, "fg")]
-    for ch, c in cells:
-        if len(out) > 1 and out[-1][1] == c:
-            out[-1] = (out[-1][0] + ch, c)
-        else:
-            out.append((ch, c))
-    return out
+L, R = 0, LEFT_W + 1                # pane = the column its rows start at
+at = session.at
 
 
 def typed(t0, pane, row, cmd, per=0.06):
-    for i in range(len(cmd) + 1):
-        at(t0 + i * per, {(pane, row): [("$ ", "green"), (cmd[:i], "fg"), ("█", "fg")]})
-    end = t0 + (len(cmd) + 1) * per + 0.15
-    at(end, {(pane, row): [("$ ", "green"), (cmd, "fg")]})
-    return end
+    return session.typed(t0, (pane, row), cmd, per)
 
 
 # ---- measurements: same spread clamp and tolerance as voice.Score
@@ -267,89 +238,13 @@ at(t + 0.3, {(R, 23): [("  = ", "fg"), (f'{d2["overall"]:g}', "green"), ("  PASS
 
 PHASES = [(0, "analyze"), (CAL_T, "calibrate"), (SCAN_T, "score"), (REV_T, "revise")]
 
-# ---------------------------------------------------------------- render
-events.sort(key=lambda e: e[0])
-screen, timeline = {}, {}
-for t_ev, ch in events:
-    for key, val in ch.items():
-        if screen.get(key) != val:
-            screen[key] = val
-            timeline.setdefault(key, []).append((t_ev, val))
-
-css, body = [], []
-uid = 0
-
-
-def pct(t):
-    return f"{max(0.0, min(100.0, t / T * 100)):.3f}%"
-
-
-def visible(start, end, at_rest):
-    """Switch an element on for [start, end) of each loop, with no fade."""
-    global uid
-    uid += 1
-    name = f"k{uid}"
-    frames = [f"0%{{opacity:{1 if start <= 0 else 0}}}"]
-    if start > 0:
-        frames.append(f"{pct(start)}{{opacity:1}}")
-    if end < T:
-        frames.append(f"{pct(end)}{{opacity:0}}")
-    css.append(f"@keyframes {name}{{{''.join(frames)}}}.{name}{{opacity:{1 if at_rest else 0};animation:{name} {T}s step-end infinite}}")
-    return name
-
-
-def text_el(x, y, sg, cls=None, extra=""):
-    n = sum(len(t) for t, _ in sg)
-    spans = "".join(f'<tspan fill="{C[c]}">{escape(t)}</tspan>' for t, c in sg if t)
-    c = f' class="{cls}"' if cls else ""
-    # textLength pins every row to the cell grid, whatever monospace font renders it
-    return f'<text{c} x="{x:.1f}" y="{y}" textLength="{n * CW:.1f}" lengthAdjust="spacingAndGlyphs" xml:space="preserve"{extra}>{spans}</text>'
-
-
-for key, changes in timeline.items():
-    pane, row = key
-    x = PAD + (0 if pane == L else RIGHT_X) * CW
-    for i, (start, sg) in enumerate(changes):
-        if sg is None:
-            continue
-        end = changes[i + 1][0] if i + 1 < len(changes) else T
-        body.append(text_el(x, TOP + row * LH, sg, visible(start, end, at_rest=(i == len(changes) - 1))))
-
-# tmux status bar: window list, the current window in reverse video
-bar = [f'<rect x="0" y="{STATUS_Y - 14}" width="{W}" height="20" fill="{C["green"]}"/>']
-bar.append(text_el(PAD, STATUS_Y, [("[gw]", "bar")]))
-x = PAD + 5 * CW
-for i, (start, label) in enumerate(PHASES):
-    end = PHASES[i + 1][0] if i + 1 < len(PHASES) else T
-    word = f"{i}:{label}"
-    on = visible(start, end, at_rest=(i == len(PHASES) - 1))
-    # plain label underneath, then the reverse-video current window on top
-    bar.append(text_el(x, STATUS_Y, [(word, "bar")]))
-    bar.append(f'<rect class="{on}" x="{x - CW / 2:.1f}" y="{STATUS_Y - 14}" width="{(len(word) + 2) * CW:.1f}" height="20" fill="{C["bar"]}"/>')
-    bar.append(text_el(x, STATUS_Y, [(word + "*", "green")], on, ' font-weight="bold"'))
-    x += (len(word) + 3) * CW
-right = '"ghostwriter" profile: me'
-bar.append(text_el(W - PAD - len(right) * CW, STATUS_Y, [(right, "bar")]))
-
 if problems:
     print("warning: range/score mismatch:", problems, file=sys.stderr)
 
-border_x = PAD + LEFT_W * CW + CW / 2
-doc = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-label="A tmux session: ghostwriter analyze turns six samples into per-measurement ranges and a pass mark of {cal['target']:g}; ghostwriter score flags AI patterns in a draft and scores it {d1['overall']:g}; the revised draft scores {d2['overall']:g} and passes">
-<title>ghostwriter in a terminal: analyze, calibrate, score, revise</title>
-<style>
-text{{font-family:ui-monospace,'JetBrains Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace;font-size:{FS}px;}}
-{''.join(css)}
-@media (prefers-reduced-motion:reduce){{*{{animation:none!important}}}}
-</style>
-<rect width="{W}" height="{H}" rx="10" fill="{C['bg']}"/>
-<path d="M0 10a10 10 0 0 1 10-10h{W - 20}a10 10 0 0 1 10 10v18H0z" fill="{C['bar']}"/>
-<circle cx="18" cy="14" r="5.5" fill="#ff5f57"/><circle cx="36" cy="14" r="5.5" fill="#febc2e"/><circle cx="54" cy="14" r="5.5" fill="#28c840"/>
-<text x="{W / 2}" y="18" text-anchor="middle" fill="{C['dim']}" font-size="12">tmux</text>
-<line x1="{border_x:.1f}" y1="{TOP - 14}" x2="{border_x:.1f}" y2="{STATUS_Y - 18}" stroke="{C['border']}"/>
-{chr(10).join(body)}
-{chr(10).join(bar)}
-</svg>
-"""
-open(OUT, "w", encoding="utf-8").write(doc)
-print(f"{len(doc)} bytes, {uid} timed elements")
+size, n = session.render(
+    OUT, windows=PHASES, status_right='"ghostwriter" profile: me', borders=[LEFT_W],
+    title="ghostwriter in a terminal: analyze, calibrate, score, revise",
+    aria=(f"A tmux session: ghostwriter analyze turns six samples into per-measurement ranges and a pass mark of "
+          f"{cal['target']:g}; ghostwriter score flags AI patterns in a draft and scores it {d1['overall']:g}; "
+          f"the revised draft scores {d2['overall']:g} and passes"))
+print(f"{size} bytes, {n} timed elements")

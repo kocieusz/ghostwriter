@@ -1,225 +1,145 @@
-"""Generate assets/demo.svg: an animated terminal walkthrough of ghostwriter.
+"""Generate assets/demo.svg: the README hero, a tmux session using ghostwriter.
 
-    python3 assets/make_demo_svg.py assets/demo.svg
+    python3 assets/make_demo_svg.py profile.json draft1.json draft2.json assets/demo.svg
 
-The scores shown are real. They come from
-`ghostwriter score draft.md -g email --source brief.md` against a profile built
-from internal/voice/testdata/writer, where draft.md is the text of scene 2 (pass
-1) or scene 3 (pass 2), with blank lines between paragraphs, and brief.md is:
+Inputs are real ghostwriter output against a profile built from
+internal/voice/testdata/writer:
 
-    Reply to Marta: yes to Thursday's demo. Slides by Wednesday. Payment API sandbox still down.
+    ghostwriter analyze --json                                         > profile.json
+    ghostwriter score pass1.md -g email --source brief.md --json       > draft1.json
+    ghostwriter score pass2.md -g email --source brief.md --json       > draft2.json
 
-Re-run them and update the numbers here if scoring changes.
+where pass1.md and pass2.md hold PASS1 and PASS2 below, and brief.md is BRIEF.
+Scores, word counts, flagged lines and the pass mark come from those files;
+the summary lines use the CLI's own wording. Drawing is done by termsvg.py,
+shared with make_engine_svg.py.
 """
+import json
 import sys
-from html import escape
 
-T = 27.0          # loop length, seconds
-W, H = 880, 520
-X0, LH = 36, 21   # left margin, line height
-FONT = "ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace"
+from termsvg import Session
 
-C = {
-    "fg": "#e6edf3", "dim": "#8b949e", "green": "#3fb950", "prompt": "#7ee787",
-    "red": "#ff7b72", "blue": "#79c0ff", "purple": "#d2a8ff", "yellow": "#e3b341",
-    "draft": "#c9d1d9",
-}
+prof, d1, d2 = (json.load(open(p)) for p in sys.argv[1:4])
+OUT = sys.argv[4]
 
-els = []      # (svg, css)
-n = 0
+BRIEF = "Reply to Marta: yes to Thursday's demo. Slides by Wednesday. Payment API sandbox still down."
+PASS1 = """Hi Marta,
 
+Thank you for reaching out! I'm thrilled to confirm Thursday's demo —
+it's not just a meeting, it's a pivotal moment for the project.
 
-def pct(t):
-    return f"{max(0.0, min(100.0, t / T * 100)):.3f}%"
+I will ensure the slides are ready by Wednesday, highlighting our robust
+progress. The payment API sandbox is down, and 47 tickets are blocked.
 
+Let me know if you'd like me to prepare anything else!""".split("\n")
+# Phrases the scorer penalised. The em dash is not here: this writer uses dashes,
+# so the scorer allowed it.
+FLAGS = ["it's not just a meeting, it's", "pivotal moment", ", highlighting", "robust", "47",
+         "Let me know if you'd like me"]
+PASS2 = """Hey Marta,
 
-def line(y, segs, start, end, type_dur=0.0, final=False, size=14, weight=None):
-    """A line of text visible from start to end; optionally typed out.
+Thursday works, I'll be there. Slides will be ready by Wednesday, nothing
+fancy, just the numbers and a couple of screenshots.
 
-    segs: list of (text, color, flag_at) where flag_at, if set, is the time
-    the segment turns red (an AI tell being flagged).
-    final: shown when animation is off (reduced motion / static render).
-    """
-    global n
-    n += 1
-    cls = f"e{n}"
-    spans = []
-    css = []
-    for i, (text, color, flag_at) in enumerate(segs):
-        scls = f"{cls}s{i}"
-        spans.append(f'<tspan class="{scls}" fill="{C[color]}">{escape(text)}</tspan>')
-        if flag_at is not None:
-            css.append(
-                f"@keyframes {scls}k{{0%,{pct(flag_at)}{{fill:{C[color]}}}"
-                f"{pct(flag_at + 0.2)},100%{{fill:{C['red']}}}}}"
-                f".{scls}{{animation:{scls}k {T}s linear infinite}}"
-            )
-    chars = sum(len(s[0]) for s in segs)
-    fade_out = end + 0.25
-    if type_dur:
-        k = (
-            f"@keyframes {cls}k{{"
-            f"0%,{pct(start - 0.01)}{{opacity:0;clip-path:inset(0 100% 0 0)}}"
-            f"{pct(start)}{{opacity:1;clip-path:inset(0 100% 0 0);animation-timing-function:steps({chars},end)}}"
-            f"{pct(start + type_dur)},{pct(end)}{{opacity:1;clip-path:inset(0 0 0 0)}}"
-            f"{pct(fade_out)},100%{{opacity:0;clip-path:inset(0 0 0 0)}}}}"
-        )
-    else:
-        k = (
-            f"@keyframes {cls}k{{0%,{pct(start)}{{opacity:0}}"
-            f"{pct(start + 0.15)},{pct(end)}{{opacity:1}}{pct(fade_out)},100%{{opacity:0}}}}"
-        )
-    css.append(k)
-    css.append(f".{cls}{{opacity:{1 if final else 0};animation:{cls}k {T}s linear infinite}}")
-    attrs = f' font-size="{size}"' + (f' font-weight="{weight}"' if weight else "")
-    els.append((f'<text class="{cls}" x="{X0}" y="{y}"{attrs} xml:space="preserve">{"".join(spans)}</text>', "".join(css)))
+One thing though, the payment API sandbox is still down, so honestly I
+can't show that part live. I'd rather tell them now than find out during
+the demo haha.
+
+Thanks a lot!""".split("\n")
+
+s = Session(0, rows=24)   # loop length is set once the script's length is known
+cal = prof["calibration"]
+own = [x["overall"] for x in cal["samples"] if not x.get("ai")]
+ai = [x["overall"] for x in cal["samples"] if x.get("ai")]
+SCORE_CMD = "ghostwriter score draft.md -g email --source brief.md"
 
 
-def box(y, h, start, end, final=False, at=None):
-    """A panel behind the draft. at: index in els to insert at, so the panel
-    is painted underneath lines that were added before its height was known."""
-    global n
-    n += 1
-    cls = f"e{n}"
-    css = (
-        f"@keyframes {cls}k{{0%,{pct(start)}{{opacity:0}}{pct(start + 0.15)},{pct(end)}{{opacity:1}}"
-        f"{pct(end + 0.25)},100%{{opacity:0}}}}"
-        f".{cls}{{opacity:{1 if final else 0};animation:{cls}k {T}s linear infinite}}"
-    )
-    el = (f'<rect class="{cls}" x="{X0 - 12}" y="{y}" width="{W - 2 * X0 + 24}" height="{h}" rx="8" fill="#161b22" stroke="#30363d"/>', css)
-    els.insert(len(els) if at is None else at, el)
+def row(r, *parts):
+    return {(0, r): list(parts)}
 
 
-def P(text, color="fg", flag=None):
-    return (text, color, flag)
+def summary(t, r, res):
+    """The first lines `ghostwriter score` prints, in its own wording."""
+    ok = res["pass"]
+    s.at(t, row(r, ("Voice match: ", "fg"), (f'{res["overall"]:g}', "green" if ok else "red"), ("/100", "dim"),
+                (f"  ({res['band']}, target {res['target']:g}) — ", "dim"),
+                ("PASS" if ok else "needs work", "green" if ok else "red")))
+    s.at(t + 0.2, row(r + 1, (f'  resemblance {res["resemblance"]:.1f}  − AI tells {res["tell_penalty"]:.1f}'
+                              f'  − facts {res["fact_penalty"]:.1f}   ({res["words"]} words)', "dim")))
 
 
-# ---------------------------------------------------------------- scene 1
-s1, e1 = 0.2, 7.2
-y = 76
-line(y, [P("$ ", "prompt"), P("ghostwriter add ~/writing/")], 0.3, e1, 1.0); y += LH
-line(y, [P("  added 6 samples · answer, email, essay, report", "dim")], 1.5, e1); y += LH * 1.5
-line(y, [P("$ ", "prompt"), P("ghostwriter analyze")], 2.2, e1, 0.7); y += LH
-line(y, [P("  your own samples score ", "dim"), P("~80", "green"), P(" · generic AI drafts ", "dim"), P("~23", "red")], 3.1, e1); y += LH
-line(y, [P("  → pass mark ", "dim"), P("77", "fg")], 3.5, e1); y += LH * 1.5
-line(y, [P("$ ", "prompt"), P("ghostwriter install")], 4.3, e1, 0.7); y += LH
-line(y, [P("  installed skill ", "dim"), P("ghostwriter", "blue"), P(" in .agents/skills/", "dim")], 5.2, e1)
+def flagged(line):
+    parts, rest = [("  ", "fg")], line
+    while rest:
+        hits = [(rest.find(f), f) for f in FLAGS if f in rest]
+        if not hits:
+            parts.append((rest, "fg"))
+            break
+        idx, f = min(hits)
+        if idx:
+            parts.append((rest[:idx], "fg"))
+        parts.append((f, "red"))
+        rest = rest[idx + len(f):]
+    return parts
 
-# ---------------------------------------------------------------- scene 2
-s2, e2 = 7.6, 17.2
-y = 76
-line(y, [P("you › ", "purple"), P("write a reply to Marta as me")], s2, e2, 1.1); y += LH
-line(y, [P("agent: drafting draft.md, pass 1", "dim")], s2 + 1.4, e2); y += 10
-draft1 = [
-    [P("Hi Marta,", "draft")],
-    [],
-    [P("Thank you for reaching out! I'm thrilled to confirm Thursday's demo ", "draft"), P("—", "draft", "F")],
-    [P("it's not just a meeting, it's", "draft", "F"), P(" a ", "draft"), P("pivotal moment", "draft", "F"), P(" for the project.", "draft")],
-    [],
-    [P("I will ensure the slides are ready by Wednesday", "draft"), P(", highlighting", "draft", "F"), P(" our ", "draft"), P("robust", "draft", "F")],
-    [P("progress. The payment API sandbox is down, and ", "draft"), P("47", "draft", "F"), P(" tickets are blocked.", "draft")],
-    [],
-    [P("Let me know if you'd like me", "draft", "F"), P(" to prepare anything else!", "draft")],
-]
-flag_time = s2 + 4.7
-box_top, box_at = y, len(els)
-dy = y + 22
-for i, segs in enumerate(draft1):
-    if segs:
-        segs = [(t, c, flag_time if f else None) for t, c, f in segs]
-        line(dy, segs, s2 + 1.7 + i * 0.07, e2, size=13)
-        dy += 19
-    else:
-        dy += 9
-box(box_top, dy - box_top - 6, s2 + 1.6, e2, at=box_at)
-y = dy + 18
-line(y, [P("$ ", "prompt"), P("ghostwriter score draft.md -g email --source brief.md")], s2 + 3.0, e2, 1.3); y += LH * 1.4
-line(y, [P("Voice match ", "fg"), P("47.8", "red"), P("/100", "dim"), P("  ✗ needs work", "red")], s2 + 4.7, e2, weight="bold"); y += LH
-line(y, [P("resemblance 76.8 − AI tells 24.0 − facts 5.0", "dim")], s2 + 5.0, e2); y += LH * 1.2
-line(y, [P("  ✗ ", "red"), P("L4  ", "dim"), P('"not X but Y" contrast  ', "yellow"), P("state the point directly", "dim")], s2 + 5.4, e2); y += LH
-line(y, [P("  ✗ ", "red"), P("L9  ", "dim"), P("assistant wrapper       ", "yellow"), P("cut the offer, keep the content", "dim")], s2 + 5.6, e2); y += LH
-line(y, [P("  ✗ ", "red"), P("L7  ", "dim"), P('invented number "47"    ', "yellow"), P("not in the brief", "dim")], s2 + 5.8, e2)
 
-# ---------------------------------------------------------------- scene 3
-s3, e3 = 17.6, 26.6
-y = 76
-line(y, [P("agent: revising from the notes, pass 2", "dim")], s3, e3, final=True); y += 10
-draft2 = [
-    "Hey Marta,",
-    "",
-    "Thursday works, I'll be there. Slides will be ready by Wednesday, nothing",
-    "fancy, just the numbers and a couple of screenshots.",
-    "",
-    "One thing though, the payment API sandbox is still down, so honestly I",
-    "can't show that part live. I'd rather tell them now than find out during",
-    "the demo haha.",
-    "",
-    "Thanks a lot!",
-]
-box_top, box_at = y, len(els)
-dy = y + 22
-for i, text in enumerate(draft2):
-    if text:
-        line(dy, [P(text, "draft")], s3 + 0.4 + i * 0.07, e3, size=13, final=True)
-        dy += 19
-    else:
-        dy += 9
-box(box_top, dy - box_top - 6, s3 + 0.3, e3, final=True, at=box_at)
-y = dy + 18
-line(y, [P("$ ", "prompt"), P("ghostwriter score draft.md -g email --source brief.md")], s3 + 1.6, e3, 1.3, final=True); y += LH * 1.4
-line(y, [P("Voice match ", "fg"), P("82.5", "green"), P("/100", "dim"), P("  ✓ pass", "green")], s3 + 3.2, e3, final=True, weight="bold"); y += LH
-line(y, [P("resemblance 82.5 − AI tells 0.0 − facts 0.0", "dim")], s3 + 3.5, e3, final=True); y += LH * 1.4
-line(y, [P("→ ", "green"), P("delivered in your voice, nothing invented", "fg")], s3 + 4.2, e3, final=True)
+# ---------------------------------------------------------------- 0: setup
+t = s.typed(0.5, (0, 0), "ghostwriter add ~/writing/")
+for i, d in enumerate(prof["docs"]):
+    s.at(t + 0.2 + i * 0.12, row(1 + i, (f'  added    {d["name"]:<40} {d["genre"]:<8} {d["words"]:>5}w', "dim")))
+t += 0.2 + len(prof["docs"]) * 0.12 + 0.2
+s.at(t, row(8, (f'{len(prof["docs"])} samples in profile "me".', "fg")))
+t = s.typed(t + 0.6, (0, 10), "ghostwriter analyze")
+s.at(t + 0.4, row(11, ("  your samples ", "dim"), (f"~{sum(own) / len(own):.0f}", "green"),
+                  (f" (p25 {cal['loo_p25']:.0f}), generic AI drafts ", "dim"), (f"~{sum(ai) / len(ai):.0f}", "red"),
+                  (f" (best {max(ai):.0f}) → pass mark ", "dim"), (f"{cal['target']:g}", "yellow")))
+t = s.typed(t + 1.2, (0, 13), "ghostwriter install")
+s.at(t + 0.3, row(14, ('Installed skill "ghostwriter" (profile "me") in ', "fg"), (".agents/skills/ghostwriter", "blue")))
 
-# ---------------------------------------------------------------- captions
-caps = [
-    (s1, e1, "1", "learn your voice from your own writing"),
-    (s2, e2, "2", "score the agent's draft: voice, AI tells, facts"),
-    (s3, e3, "3", "revise until it passes"),
-]
-for start, end, num, text in caps:
-    n += 1
-    cls = f"e{n}"
-    css = (
-        f"@keyframes {cls}k{{0%,{pct(start)}{{opacity:0}}{pct(start + 0.3)},{pct(end)}{{opacity:1}}"
-        f"{pct(end + 0.25)},100%{{opacity:0}}}}"
-        f".{cls}{{opacity:{1 if num == '3' else 0};animation:{cls}k {T}s linear infinite}}"
-    )
-    svg = (
-        f'<g class="{cls}"><circle cx="{X0 + 9}" cy="{H - 34}" r="10" fill="#1f6feb"/>'
-        f'<text x="{X0 + 9}" y="{H - 30}" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">{num}</text>'
-        f'<text x="{X0 + 28}" y="{H - 29.5}" font-size="13" fill="{C["dim"]}">{escape(text)}</text></g>'
-    )
-    els.append((svg, css))
+# ---------------------------------------------------------------- 1: draft
+DRAFT_T = t + 1.6          # each scene starts after the last one has finished
+s.clear(DRAFT_T)
+s.at(DRAFT_T + 0.1, row(0, ("you › ", "magenta"), ("write a reply to Marta as me", "fg")))
+s.at(DRAFT_T + 0.7, row(1, ("  # the agent drafts draft.md, then checks it", "dim")))
+s.at(DRAFT_T + 1.3, {(0, 3 + i): [("  " + line, "fg")] for i, line in enumerate(PASS1) if line})
+t = s.typed(DRAFT_T + 2.0, (0, 13), SCORE_CMD, per=0.035)
+summary(t + 0.4, 15, d1)
+if d1.get("blockers"):
+    s.at(t + 0.8, row(17, ("  ✗ " + d1["blockers"][0], "red")))
+for i, line in enumerate(PASS1):     # the flagged phrases light up, line by line
+    if line:
+        s.at(t + 1.2 + i * 0.1, {(0, 3 + i): flagged(line)})
+t += 2.4
+s.at(t, row(19, ("What to change (most points first):", "fg")))
+finds = {f["rule"]: f for f in d1["tells"]["findings"]}
+notes = []
+for rule, label in (("negative_parallelism", '"not X but Y" contrast'), ("chatbot_residue", "assistant wrapper")):
+    f = finds[rule]
+    ex = f["examples"][0]
+    notes.append([("  ✗ ", "red"), (f'[tell −{f["penalty"]:.1f}] ', "dim"), (f"{label:<24}", "yellow"),
+                  (f'L{ex["line"]} "{ex["match"]}"', "fg")])
+added = d1.get("facts", {}).get("added_numbers", [])
+if added:
+    notes.append([("  ✗ ", "red"), (f'[fact −{5 * len(added):.1f}] ', "dim"), (f"{'invented number':<24}", "yellow"),
+                  (f'"{added[0]}" is not in the brief', "fg")])
+for i, n in enumerate(notes):
+    s.at(t + 0.3 + i * 0.25, row(20 + i, *n))
+t += 0.3 + len(notes) * 0.25
 
-# step dots on the right
-for i, (start, end, num, _) in enumerate(caps):
-    n += 1
-    cls = f"e{n}"
-    css = (
-        f"@keyframes {cls}k{{0%,{pct(start)}{{fill:#30363d}}{pct(start + 0.3)},{pct(end)}{{fill:#1f6feb}}"
-        f"{pct(end + 0.25)},100%{{fill:#30363d}}}}"
-        f".{cls}{{fill:{'#1f6feb' if num == '3' else '#30363d'};animation:{cls}k {T}s linear infinite}}"
-    )
-    els.append((f'<rect class="{cls}" x="{W - 120 + i * 26}" y="{H - 37}" width="20" height="6" rx="3"/>', css))
+# ---------------------------------------------------------------- 2: revise
+REV_T = t + 3.2            # time to read the notes
+s.clear(REV_T)
+s.at(REV_T + 0.1, row(0, ("  # pass 2: the agent rewrote the draft from the notes", "dim")))
+s.at(REV_T + 0.6, {(0, 2 + i): [("  " + line, "fg")] for i, line in enumerate(PASS2) if line})
+t = s.typed(REV_T + 1.6, (0, 13), SCORE_CMD, per=0.035)
+summary(t + 0.4, 15, d2)
+s.at(t + 1.4, row(18, ("→ ", "green"), ("delivered in your voice, nothing invented", "fg")))
+s.loop = t + 5.0           # hold the passing result before looping
 
-style = "".join(c for _, c in els)
-body = "\n".join(s for s, _ in els)
-svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-label="ghostwriter learns a writer's voice, flags an AI-sounding draft at 47.8/100, and passes the revised draft at 82.5/100">
-<title>ghostwriter: learn your voice, score the draft, revise until it passes</title>
-<style>
-text{{font-family:{FONT};}}
-{style}
-@media (prefers-reduced-motion:reduce){{*{{animation:none!important}}}}
-</style>
-<rect x="8" y="8" width="{W - 16}" height="{H - 16}" rx="12" fill="#0d1117" stroke="#30363d"/>
-<path d="M8 20a12 12 0 0 1 12-12h{W - 40}a12 12 0 0 1 12 12v22H8z" fill="#161b22"/>
-<line x1="8" y1="42" x2="{W - 8}" y2="42" stroke="#30363d"/>
-<circle cx="30" cy="25" r="6" fill="#ff5f57"/><circle cx="50" cy="25" r="6" fill="#febc2e"/><circle cx="70" cy="25" r="6" fill="#28c840"/>
-<text x="{W / 2}" y="30" font-size="13" fill="{C['dim']}" text-anchor="middle">ghostwriter</text>
-<line x1="8" y1="{H - 58}" x2="{W - 8}" y2="{H - 58}" stroke="#21262d"/>
-{body}
-</svg>
-"""
-open(sys.argv[1], "w", encoding="utf-8").write(svg)
-print(f"{len(svg)} bytes, {n} animated elements")
+size, n = s.render(
+    OUT, windows=[(0, "setup"), (DRAFT_T, "draft"), (REV_T, "revise")], status_right='"ghostwriter" profile: me',
+    title="ghostwriter: learn your voice, score the draft, revise until it passes",
+    aria=(f"A tmux session: ghostwriter learns a voice from six samples, scores an AI-sounding draft "
+          f"{d1['overall']:g}/100 for AI patterns and an invented number, then passes the revised draft at "
+          f"{d2['overall']:g}/100"))
+print(f"{size} bytes, {n} timed elements")
