@@ -28,7 +28,7 @@ func Detect(text string) []Hit {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	raw := stylo.MaskCode(text)
 	prose := stylo.Blank(stylo.Normalize(stylo.Mask(text)), quotedRe, blockquoteRe)
-	var hits []Hit
+	hits := []Hit{}
 	for _, r := range Rules {
 		src := prose
 		if r.Raw {
@@ -123,7 +123,7 @@ func Assess(hits []Hit, words int, base map[string]Baseline) Assessment {
 			examples[h.Rule] = append(examples[h.Rule], h)
 		}
 	}
-	var a Assessment
+	a := Assessment{Findings: []Finding{}} // [] not null in JSON
 	overNonWeak := 0
 	overTotal := 0
 	for _, r := range Rules {

@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -117,6 +118,21 @@ func TestSignaturesMergeShiftedWindows(t *testing.T) {
 	for _, s := range sig[1:] {
 		if strings.Contains("at the end of the day", s) {
 			t.Fatalf("fragment %q kept beside the merged phrase: %q", s, sig)
+		}
+	}
+}
+
+// Empty lists must serialise as [] so scripts can iterate them without a
+// null check.
+func TestJSONEmptyListsAreArrays(t *testing.T) {
+	p := Build(corpus(t))
+	b, err := json.Marshal(Score(p, "Fine.", Options{Target: 1}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"findings":null`, `"notes":null`} {
+		if strings.Contains(string(b), field) {
+			t.Errorf("JSON contains %s", field)
 		}
 	}
 }
