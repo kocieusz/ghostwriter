@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  build:
+    desc: Build ghostwriter into bin/
+    cmds:
+      - go build -o bin/ghostwriter .
+    sources:
+      - ./**/*.go
+      - ./**/*.tmpl
+      - ./internal/voice/airef/*.txt
+      - ./docs/*.md
+      - go.mod
+      - go.sum
+    generates:
+      - bin/ghostwriter
+
+  test:
+    desc: Run the test suite
+    cmds:
+      - go test ./...
+
+  tidy:
+    desc: Tidy Go module files
+    cmds:
+      - go mod tidy

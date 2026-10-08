@@ -1,0 +1,9 @@
+Sprint 14 summary
+
+We closed 23 tickets out of 30, which is fine but not great. The main blocker was the payment API — their sandbox was down for two days and we couldn't test anything, so Tomek and I moved to the export feature in the meantime.
+
+What went well: the export is basically done, and the new review rule (two approvals) actually caught a bug before release, so I think it's worth keeping.
+
+What didn't: estimates were way off again, especially anything touching the old billing code. I'd suggest we stop estimating billing tickets until we refactor it, honestly it's a guessing game.
+
+Next sprint: finish payments, ship export, and maybe finally kill the old cron jobs.

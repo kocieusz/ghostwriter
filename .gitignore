@@ -23,3 +23,14 @@ go.work.sum
 
 # env file
 .env
+
+# build output
+bin/
+dist/
+
+# macOS
+.DS_Store
+
+# personal writing samples and style guides never belong in the repo
+samples/
+STYLE.md
